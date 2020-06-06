@@ -208,8 +208,9 @@ protected:
         asm volatile("" : "=m"(grp.live_cnt) : :);
         for(int i = 0; i < grp.live_cnt; i++) {
             Connection& conn = *grp.conns[i];
-            MsgHeader* head = conn.ShmFront();
-            if(head) static_cast<Derived*>(this)->OnClientMsg(conn, head);
+            //MsgHeader* head = conn.ShmFront();
+            //if(head) static_cast<Derived*>(this)->OnClientMsg(conn, head);
+            static_cast<Derived*>(this)->OnClientMsg(conn, nullptr);
         }
     }
 
