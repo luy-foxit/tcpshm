@@ -34,7 +34,7 @@ public:
   static constexpr uint32_t BLK_CNT = Bytes / 64;
   static_assert(BLK_CNT && !(BLK_CNT & (BLK_CNT - 1)), "BLK_CNT must be a power of 2");
 
-  MsgHeader* Alloc(uint16_t size) {
+  MsgHeader* Alloc(uint32_t size) {
     size += sizeof(MsgHeader);
     uint32_t blk_sz = (size + sizeof(Block) - 1) / sizeof(Block);
     uint32_t padding_sz = BLK_CNT - (write_idx % BLK_CNT);
@@ -70,7 +70,7 @@ public:
         if(read_idx == write_idx) {
             return nullptr;
         }
-        uint16_t size = blk[read_idx % BLK_CNT].header.size;
+        uint32_t size = blk[read_idx % BLK_CNT].header.size;
         if(size == 0) { // rewind
             read_idx += BLK_CNT - (read_idx % BLK_CNT);
             if(read_idx == write_idx) {

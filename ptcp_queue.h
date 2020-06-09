@@ -33,16 +33,22 @@ template<uint32_t Bytes, bool ToLittleEndian>
 class PTCPQueue
 {
 public:
-    static_assert(Bytes % sizeof(MsgHeader) == 0, "Bytes must be multiple of 8");
-    static const uint32_t BLK_CNT = Bytes / sizeof(MsgHeader);
+    static const int BLK_SIZE = sizeof(MsgHeader);
+    static_assert(Bytes % BLK_SIZE == 0, "Bytes must be multiple of BLK_SIZE");
+    static const uint32_t BLK_CNT = Bytes / BLK_SIZE;
 
-    MsgHeader* Alloc(uint16_t size) {
-        size += sizeof(MsgHeader);
-        uint32_t blk_sz = (size + sizeof(MsgHeader) - 1) / sizeof(MsgHeader);
+    static inline int BlockAlign(int size) {
+        int tmp = -1 * BLK_SIZE;
+        return ((size + BLK_SIZE - 1) & tmp);
+    }
+
+    MsgHeader* Alloc(uint32_t size) {
+        size += BLK_SIZE;
+        uint32_t blk_sz = (size + BLK_SIZE - 1) / BLK_SIZE;
         uint32_t avail_sz = BLK_CNT - write_idx_;
         if(blk_sz > avail_sz) {
             if(blk_sz > avail_sz + read_idx_) return nullptr;
-            memmove(blk_, blk_ + read_idx_, (write_idx_ - read_idx_) * sizeof(MsgHeader));
+            memmove(blk_, blk_ + read_idx_, (write_idx_ - read_idx_) * BLK_SIZE);
             write_idx_ -= read_idx_;
             send_idx_ -= read_idx_;
             read_idx_ = 0;
@@ -54,14 +60,14 @@ public:
 
     void Push() {
         MsgHeader& header = blk_[write_idx_];
-        uint32_t blk_sz = (header.size + sizeof(MsgHeader) - 1) / sizeof(MsgHeader);
+        uint32_t blk_sz = (header.size + BLK_SIZE - 1) / BLK_SIZE;
         header.ack_seq = ack_seq_num_;
         header.ConvertByteOrder<ToLittleEndian>();
         write_idx_ += blk_sz;
     }
 
     MsgHeader* GetSendable(int& blk_sz) {
-        blk_sz = write_idx_ - send_idx_;
+        blk_sz = write_idx_ - send_idx_;    //send_idx_: Push()前write_idx_的值
         return blk_ + send_idx_;
     }
 
@@ -81,7 +87,7 @@ public:
         // so_seq will never go beyond the msg write_idx_ points to during a connection lifecycle
         do {
             read_idx_ +=
-                (Endian<ToLittleEndian>::Convert(blk_[read_idx_].size) + sizeof(MsgHeader) - 1) / sizeof(MsgHeader);
+                (Endian<ToLittleEndian>::Convert(blk_[read_idx_].size) + BLK_SIZE - 1) / BLK_SIZE;
             read_seq_num_++;
         } while(read_seq_num_ != ack_seq);
         if(read_idx_ == write_idx_) {
@@ -100,7 +106,7 @@ public:
             MsgHeader header = blk_[idx];
             header.ConvertByteOrder<ToLittleEndian>();
             if((int)(ack_seq_num_ - header.ack_seq) < 0) return false; // ack_seq in this msg is too new
-            idx += (header.size + sizeof(MsgHeader) - 1) / sizeof(MsgHeader);
+            idx += (header.size + BLK_SIZE - 1) / BLK_SIZE;
             end++;
         }
         if(idx != write_idx_) return false;

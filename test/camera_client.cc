@@ -3,6 +3,7 @@
 #include "timestamp.h"
 #include "common.h"
 #include "cpupin.h"
+#include "logging.h"
 
 using namespace std;
 using namespace tcpshm;
@@ -11,9 +12,13 @@ struct ClientConf : public CommonConf
 {
   static const int64_t NanoInSecond = 1000000000LL;
 
-  static const uint32_t TcpQueueSize = 2000;       // must be a multiple of 8
-  static const uint32_t TcpRecvBufInitSize = 1000; // must be a multiple of 8
-  static const uint32_t TcpRecvBufMaxSize = 2000;  // must be a multiple of 8
+  static const uint32_t TcpQueueSize = 640*480 * 2; //1024 * 1200; //2000;       // must be a multiple of 16
+  static const uint32_t TcpRecvBufInitSize = 640*480 + 16; // must be a multiple of 16
+  static const uint32_t TcpRecvBufMaxSize;// = 640*480 * 2;  // must be a multiple of 16
+
+  //static const uint32_t TcpQueueSize = 1920;       // must be a multiple of 16
+  //static const uint32_t TcpRecvBufInitSize = 960; // must be a multiple of 16
+  //static const uint32_t TcpRecvBufMaxSize = 1920;  // must be a multiple of 16
   static const bool TcpNoDelay = true;
 
   static const int64_t ConnectionTimeout = 10 * NanoInSecond;
@@ -22,17 +27,19 @@ struct ClientConf : public CommonConf
   using ConnectionUserData = char;
 };
 
-class EchoClient;
-using TSClient = TcpShmClient<EchoClient, ClientConf>;
+const uint32_t ClientConf::TcpRecvBufMaxSize = 640*480 * 2;  // must be a multiple of 16
 
-class EchoClient : public TSClient
+class CameraClient;
+using TSClient = TcpShmClient<CameraClient, ClientConf>;
+
+class CameraClient : public TSClient
 {
 public:
-    EchoClient(const std::string& ptcp_dir, const std::string& name)
+    CameraClient(const std::string& ptcp_dir, const std::string& name)
         : TSClient(ptcp_dir, name)
         , conn(GetConnection()) {
         srand(time(NULL));
-        signal(SIGINT, EchoClient::SignalHandler);
+        signal(SIGINT, CameraClient::SignalHandler);
     }
 
     static void SignalHandler(int s) {
@@ -61,8 +68,19 @@ public:
         }
         else {
             if(do_cpupin) cpupin(7);
+
+            {
+                LOG(INFO) << "send a msg to server";
+                MsgHeader* header_send = conn.Alloc(1);
+                if(header_send) {
+                    header_send->msg_type = 3;
+                    conn.Push();
+                }
+                LOG(INFO) << "send a msg to server end";
+            }
             start_time = now();
             while(!conn.IsClosed() && !stopped) {
+                usleep(1000);    //sleep 1ms
                 PollTcp(now());
             }
             stop_time = now();
@@ -110,11 +128,21 @@ private:
 
     // called by APP thread
     void OnServerMsg(MsgHeader* header) {
-        auto size = header->size - sizeof(MsgHeader);
-        std::cout << "OnServerMsg. recv size:" << (int)size << std::endl;
+
+        int size = header->size - sizeof(MsgHeader);
+        int llsize = size / 8;
         unsigned char* data = (unsigned char*)(header + 1);
-        std::cout << "OnServerMsg. recv data:" << ((unsigned long long*)data)[0] << std::endl;
+        LOG(INFO) << "Recv data:" << ((unsigned long long*)data)[0]
+          << " " << ((unsigned long long*)data)[llsize - 2]
+          << ". recv size:" << size;
         conn.Pop();
+
+        MsgHeader* header_send = conn.Alloc(1);
+        if(header_send) {
+            header_send->msg_type = 3;
+            conn.Push();
+        }
+
     }
 
     // called by tcp thread
@@ -139,7 +167,7 @@ public:
     static volatile bool stopped;
 };
 
-volatile bool EchoClient::stopped = false;
+volatile bool CameraClient::stopped = false;
 
 int main(int argc, const char** argv) {
     if(argc != 4) {
@@ -150,7 +178,7 @@ int main(int argc, const char** argv) {
     const char* server_ip = argv[2];
     bool use_shm = argv[3][0] != '0';
 
-    EchoClient client(name, name);
+    CameraClient client(name, name);
     client.Run(use_shm, server_ip, 12345);
 
     return 0;

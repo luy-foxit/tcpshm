@@ -199,6 +199,7 @@ protected:
             Connection& conn = *grp.conns[i];
             MsgHeader* head = conn.TcpFront(now);
             if(head) static_cast<Derived*>(this)->OnClientMsg(conn, head);
+            //static_cast<Derived*>(this)->OnClientMsg(conn, head);
         }
     }
 
@@ -208,9 +209,9 @@ protected:
         asm volatile("" : "=m"(grp.live_cnt) : :);
         for(int i = 0; i < grp.live_cnt; i++) {
             Connection& conn = *grp.conns[i];
-            //MsgHeader* head = conn.ShmFront();
+            MsgHeader* head = conn.ShmFront();
             //if(head) static_cast<Derived*>(this)->OnClientMsg(conn, head);
-            static_cast<Derived*>(this)->OnClientMsg(conn, nullptr);
+            static_cast<Derived*>(this)->OnClientMsg(conn, head);
         }
     }
 

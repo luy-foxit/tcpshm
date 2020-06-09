@@ -198,6 +198,7 @@ protected:
         if(!conn_.IsClosed()) {
             MsgHeader* head = conn_.TcpFront(now);
             if(head) static_cast<Derived*>(this)->OnServerMsg(head);
+            //static_cast<Derived*>(this)->OnServerMsg(head);
         }
         if(conn_.TryCloseFd()) {
             int sys_errno;

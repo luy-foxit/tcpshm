@@ -65,7 +65,7 @@ public:
     // allocate a msg of specified size in send queue
     // the returned address is guaranteed to be 8 byte aligned
     // return nullptr if no enough space
-    MsgHeader* Alloc(uint16_t size) {
+    MsgHeader* Alloc(uint32_t size) {
         if(shm_sendq_) return shm_sendq_->Alloc(size);
         return ptcp_conn_.Alloc(size);
     }

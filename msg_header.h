@@ -31,11 +31,13 @@ struct MsgHeader
 {
     // size of this msg, including header itself
     // auto set by lib, can be read by user
-    uint16_t size;
+    uint32_t size;
     // msg type of app msg is set by user and must not be 0
-    uint16_t msg_type;
+    uint32_t msg_type;
     // internally used for ptcp, must not be modified by user
     uint32_t ack_seq;
+    // send index
+    uint32_t index;
 
     template<bool ToLittle>
     void ConvertByteOrder() {
@@ -43,6 +45,7 @@ struct MsgHeader
         ed.ConvertInPlace(size);
         ed.ConvertInPlace(msg_type);
         ed.ConvertInPlace(ack_seq);
+        ed.ConvertInPlace(index);
     }
 };
 } // namespace tcpshm

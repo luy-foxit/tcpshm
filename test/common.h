@@ -11,10 +11,10 @@ struct CommonConf
     using LoginRspUserData = char;
 };
 
-template<uint32_t N, uint16_t MsgType>
+template<uint32_t N, uint32_t MsgType>
 struct MsgTpl
 {
-    static const uint16_t msg_type = MsgType;
+    static const uint32_t msg_type = MsgType;
     int val[N];
 };
 
