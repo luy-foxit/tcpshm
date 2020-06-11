@@ -27,6 +27,7 @@ SOFTWARE.
 #include "mmap.h"
 #include <memory>
 #include <sys/uio.h>
+#include <cerrno>
 
 namespace tcpshm {
 
@@ -286,7 +287,7 @@ private:
     }
 
     int DoRecv() {
-        char stackbuf[65536];   //--TODO: maybe need to change here
+        char stackbuf[65536];   //--TODO: maybe need to change size here
         if(readidx_ > 0 && readidx_ == writeidx_) {
             readidx_ = nextmsg_idx_ = writeidx_ = 0;
         }

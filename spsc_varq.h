@@ -27,6 +27,8 @@ SOFTWARE.
 
 namespace tcpshm {
 
+//in asm volatile, "m" means force read from memory, "=m" means force write to memory. not saved vaule in register.
+
 template<uint32_t Bytes>
 class SPSCVarQueue
 {

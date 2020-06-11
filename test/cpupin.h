@@ -1,4 +1,5 @@
 #include <sched.h>
+#include <iostream>
 
 bool cpupin(int cpuid) {
     cpu_set_t my_set;

@@ -1,10 +1,8 @@
 cmake_minimum_required(VERSION 3.5)
 project(tcpshm C CXX)
 
-#set( CMAKE_VERBOSE_MAKEFILE on )
-
-set(CMAKE_C_COMPILER gcc)
-set(CMAKE_CXX_COMPILER g++)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED 11)
 
 if(NOT CMAKE_BUILD_TYPE)
     message(STATUS "No build type specified, defaulting Release")
@@ -16,7 +14,14 @@ else(NOT CMAKE_BUILD_TYPE)
         set(CMAKE_CXX_FLAGS "-g -O0")
     endif()
 endif()
-set(CMAKE_CXX_FLAGS "--std=c++11")
+
+if(ANDROID)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frtti -fexceptions -Wall -Wno-unused-variable -Wno-unused-private-field")
+    set(LINK_LIBS log)
+else()
+    set(LINK_LIBS rt)
+    list(APPEND LINK_LIBS pthread)
+endif()
 
 add_executable(
     camera_server
@@ -27,8 +32,7 @@ add_executable(
 
 target_link_libraries(
     camera_server
-    rt
-    pthread
+    ${LINK_LIBS}
     )
 
 add_executable(
@@ -39,7 +43,6 @@ add_executable(
 
 target_link_libraries(
     camera_client
-    rt
-    pthread
+    ${LINK_LIBS}
     )
 

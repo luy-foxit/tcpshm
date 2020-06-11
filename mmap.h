@@ -28,6 +28,9 @@ SOFTWARE.
 #include <sys/mman.h>
 #include <unistd.h>
 #include <fcntl.h>
+#ifdef __ANDROID__
+#include <linux/ashmem.h>
+#endif
 
 namespace tcpshm {
 
@@ -35,27 +38,36 @@ template<class T>
 T* my_mmap(const char* filename, bool use_shm, const char** error_msg) {
     int fd = -1;
     if(use_shm) {
+#ifdef __ANDROID__
+        fd = open("/dev/ashmem", O_RDWR | O_CLOEXEC);
+#else
         fd = shm_open(filename, O_CREAT | O_RDWR, 0666);
+#endif
     }
     else {
         fd = open(filename, O_CREAT | O_RDWR, 0644);
     }
-    if(fd == -1) {
+    if(fd < 0) {
         *error_msg = "open";
         return nullptr;
     }
-    if(ftruncate(fd, sizeof(T))) {
+#ifdef __ANDROID__
+    int ret = ioctl(fd, ASHMEM_SET_SIZE, sizeof(T));
+#else
+    int ret = ftruncate(fd, sizeof(T));
+#endif
+    if(ret) {
         *error_msg = "ftruncate";
         close(fd);
         return nullptr;
     }
-    T* ret = (T*)mmap(0, sizeof(T), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    T* map_ptr = (T*)mmap(0, sizeof(T), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     close(fd);
-    if(ret == MAP_FAILED) {
+    if(map_ptr == MAP_FAILED) {
         *error_msg = "mmap";
         return nullptr;
     }
-    return ret;
+    return map_ptr;
 }
 
 template<class T>

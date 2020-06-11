@@ -1,5 +1,7 @@
 #include "../tcpshm_client.h"
-#include <bits/stdc++.h>
+//#include <bits/stdc++.h>
+#include <thread>
+#include <signal.h>
 #include "timestamp.h"
 #include "common.h"
 #include "cpupin.h"
