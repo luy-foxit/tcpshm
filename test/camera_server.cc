@@ -54,7 +54,7 @@ class CameraServer : public TSServer
 {
 public:
     CameraServer(const std::string& ptcp_dir, const std::string& name)
-        : TSServer(ptcp_dir, name) {
+        : TSServer(name, ptcp_dir) {
         // capture SIGTERM to gracefully stop the server
         // we can also send other signals to crash the server and see how it recovers on restart
 
@@ -225,7 +225,9 @@ int main() {
     std::thread camrea_thread = std::thread(CameraThread);
 
     {
-        CameraServer server("server", "server");
+        std::string ptcp_dir("server");
+        std::string server_name("camera_server");
+        CameraServer server(ptcp_dir, server_name);
         server.Run("0.0.0.0", 12345);
     }
 

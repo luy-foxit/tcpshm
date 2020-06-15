@@ -217,7 +217,7 @@ protected:
 
         int fd;
         if(use_shm) {
-            std::string sock_addr("/data/tmp/tcpshm_server");
+            std::string sock_addr = std::string(run_dir) + "/" + server_ipv4;     //ashm file generated in server
             fd = SocketUnixfd(sock_addr);
         } else {
             fd = SocketInetfd(server_ipv4, server_port);

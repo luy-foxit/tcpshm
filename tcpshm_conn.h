@@ -29,6 +29,12 @@ SOFTWARE.
 
 namespace tcpshm {
 
+#ifdef __ANDROID__
+static const char* run_dir = "/data/tmp";
+#else
+static const char* run_dir = "/tmp";
+#endif
+
 template<class Conf>
 class TcpShmConnection
 {

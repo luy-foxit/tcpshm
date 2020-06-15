@@ -69,8 +69,8 @@ protected:
     }
 
     bool StartAfUnix() {
-        //std::string sock_addr("/tmp/tcpshm_server");
-        std::string sock_addr("/data/tmp/tcpshm_server");
+        std::string sock_addr = std::string(run_dir) + "/" + server_name_;
+        remove(sock_addr.c_str());
 
         if(listen_unix_fd_ >= 0) {
             static_cast<Derived*>(this)->OnSystemError("already started", 0);
