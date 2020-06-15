@@ -33,14 +33,8 @@ template<uint32_t Bytes, bool ToLittleEndian>
 class PTCPQueue
 {
 public:
-    static const int BLK_SIZE = sizeof(MsgHeader);
     static_assert(Bytes % BLK_SIZE == 0, "Bytes must be multiple of BLK_SIZE");
     static const uint32_t BLK_CNT = Bytes / BLK_SIZE;
-
-    static inline int BlockAlign(int size) {
-        int tmp = -1 * BLK_SIZE;
-        return ((size + BLK_SIZE - 1) & tmp);
-    }
 
     MsgHeader* Alloc(uint32_t size) {
         size += BLK_SIZE;

@@ -199,6 +199,7 @@ private:
 
         MsgHeader* send_header = conn.Alloc(info.size);
         if(!send_header) {
+            LOG(ERROR) << "header alloc failed";
             return;
         }
         send_header->msg_type = 4;
@@ -209,7 +210,11 @@ private:
     }
 
     // set do_cpupin to true to get more stable latency
+#ifdef __ANDROID__
+    bool do_cpupin = false;
+#else
     bool do_cpupin = true;
+#endif
 };
 
 int main() {

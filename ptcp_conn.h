@@ -45,6 +45,10 @@ struct LoginMsgTpl
     static const uint32_t msg_type = 1;
     uint32_t client_seq_start;
     uint32_t client_seq_end;
+
+    int client_shm_send_fd = -1;
+    int client_shm_recv_fd = -1;
+
     // user can put more information in user_data for auth, such as username, password...
     typename Conf::LoginUserData user_data;
 
@@ -57,6 +61,8 @@ struct LoginMsgTpl
         Endian<Conf::ToLittleEndian> ed;
         ed.ConvertInPlace(client_seq_start);
         ed.ConvertInPlace(client_seq_end);
+        ed.ConvertInPlace(client_shm_send_fd);
+        ed.ConvertInPlace(client_shm_recv_fd);
     }
 };
 
@@ -95,7 +101,7 @@ public:
     bool OpenFile(const char* ptcp_queue_file,
                   const char** error_msg) {
         if(!q_) {
-            q_ = my_mmap<PTCPQ>(ptcp_queue_file, false, error_msg);
+            q_ = tcp_mmap<PTCPQ>(ptcp_queue_file, error_msg);
             if(!q_) return false;
         }
         return true;
@@ -114,7 +120,7 @@ public:
         Close("Release", 0);
         TryCloseFd();
         if(q_) {
-            my_munmap<PTCPQ>(q_);
+            tcp_munmap<PTCPQ>(q_);
             q_ = nullptr;
         }
     }
@@ -171,13 +177,13 @@ public:
         if(int len = DoRecv()) {    //read data to recvbuf_
             int old_writeidx = writeidx_;
             writeidx_ += len;
-            while(writeidx_ - nextmsg_idx_ >= PTCPQ::BLK_SIZE) {
+            while(writeidx_ - nextmsg_idx_ >= BLK_SIZE) {
                 MsgHeader* header = (MsgHeader*)&recvbuf_[nextmsg_idx_];
-                if(old_writeidx - (int)nextmsg_idx_ < PTCPQ::BLK_SIZE) { // we haven't converted this header
+                if(old_writeidx - (int)nextmsg_idx_ < BLK_SIZE) { // we haven't converted this header
                     header->ConvertByteOrder<Conf::ToLittleEndian>();
                 }
                 q_->Ack(header->ack_seq);
-                int msg_size = PTCPQ::BlockAlign(header->size);
+                int msg_size = BlockAlign(header->size);
                 if(msg_size > Conf::TcpRecvBufMaxSize) {
                     Close("Msg size larger than recv buf max size", 0);
                     return nullptr;
@@ -199,7 +205,7 @@ public:
     // we have consumed the msg we got from Front()
     void Pop() {
         MsgHeader* header = (MsgHeader*)&recvbuf_[readidx_];
-        readidx_ += PTCPQ::BlockAlign(header->size);
+        readidx_ += BlockAlign(header->size);
         q_->MyAck()++;
     }
 
@@ -227,7 +233,7 @@ public:
         int blk_sz;
         const char* p = (char*)q_->GetSendable(blk_sz);
         if(blk_sz == 0) return false;               //not call PTCPQueue::Push(). no data to send
-        uint32_t size = blk_sz * PTCPQ::BLK_SIZE;    // block to bytes.
+        uint32_t size = blk_sz * BLK_SIZE;    // block to bytes.
         do {
             int sent = ::send(sockfd_, p, size, MSG_NOSIGNAL);
             if(sent < 0) {
@@ -241,7 +247,7 @@ public:
             p += sent;
             size -= sent;
         } while(size > 0);
-        int sent_blk = blk_sz - (size / PTCPQ::BLK_SIZE);
+        int sent_blk = blk_sz - (size / BLK_SIZE);
         if(sent_blk > 0) {
             send_time_ = now_;
             q_->Sendout(sent_blk);  //Send data end, move send_idx_;
@@ -336,7 +342,7 @@ private:
             // newbufsize must be large enough to hold all data just read
             // and should be at least twice recvbuf_size_, but not larger than TcpRecvBufMaxSize
             uint32_t newbufsize =
-                std::min(Conf::TcpRecvBufMaxSize, std::max(recvbuf_size_ * 2, (uint32_t)PTCPQ::BlockAlign(writeidx_ - readidx_ + ret) ) );
+                std::min(Conf::TcpRecvBufMaxSize, std::max(recvbuf_size_ * 2, (uint32_t)BlockAlign(writeidx_ - readidx_ + ret) ) );
             std::unique_ptr<char[]> new_buf(new char[newbufsize]);
             memcpy(&new_buf[0], &recvbuf_[readidx_], recvbuf_size_ - readidx_);
             memcpy(&new_buf[recvbuf_size_ - readidx_], stackbuf, ret - writable);
@@ -358,8 +364,8 @@ private:
     const char* close_reason_ = "nil";
     int close_errno_ = 0;
     static_assert(Conf::TcpRecvBufMaxSize >= Conf::TcpRecvBufInitSize, "Conf::TcpRecvBufMaxSize too small");
-    static_assert((Conf::TcpRecvBufInitSize % PTCPQ::BLK_SIZE) == 0, "Conf::TcpRecvBufInitSize must be a multiple of BLK_SIZE");
-    static_assert((Conf::TcpRecvBufMaxSize % PTCPQ::BLK_SIZE) == 0, "Conf::TcpRecvBufMaxSize must be a multiple of BLK_SIZE");
+    static_assert((Conf::TcpRecvBufInitSize % BLK_SIZE) == 0, "Conf::TcpRecvBufInitSize must be a multiple of BLK_SIZE");
+    static_assert((Conf::TcpRecvBufMaxSize % BLK_SIZE) == 0, "Conf::TcpRecvBufMaxSize must be a multiple of BLK_SIZE");
     std::unique_ptr<char[]> recvbuf_;
     uint32_t recvbuf_size_ = 0;
     uint32_t writeidx_ = 0;

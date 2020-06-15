@@ -26,6 +26,7 @@ SOFTWARE.
 #include <string>
 #include <strings.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -67,6 +68,39 @@ protected:
         Stop();
     }
 
+    bool StartAfUnix() {
+        //std::string sock_addr("/tmp/tcpshm_server");
+        std::string sock_addr("/data/tmp/tcpshm_server");
+
+        if(listen_unix_fd_ >= 0) {
+            static_cast<Derived*>(this)->OnSystemError("already started", 0);
+            return false;
+        }
+
+        if((listen_unix_fd_ = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+            static_cast<Derived*>(this)->OnSystemError("socket", errno);
+            return false;
+        }
+
+        int flags = fcntl(listen_unix_fd_, F_GETFL, 0);
+        fcntl(listen_unix_fd_, F_SETFL, flags | O_NONBLOCK);
+
+        struct sockaddr_un addr;
+        memset(&addr, 0, sizeof(struct sockaddr_un));
+        addr.sun_family = AF_UNIX;
+        strncpy(addr.sun_path, sock_addr.c_str(), sock_addr.size());
+        int ret = bind(listen_unix_fd_, (struct sockaddr*)(&addr), sizeof(struct sockaddr_un));
+        if(ret < 0) {
+            static_cast<Derived*>(this)->OnSystemError("bind", errno);
+            return false;
+        }
+        if(listen(listen_unix_fd_, 5) < 0) {
+            static_cast<Derived*>(this)->OnSystemError("listen", errno);
+            return false;
+        }
+
+        return true;
+    }
     // start the server
     // return true if success
     bool Start(const char* listen_ipv4, uint16_t listen_port) {
@@ -104,31 +138,70 @@ protected:
             static_cast<Derived*>(this)->OnSystemError("listen", errno);
             return false;
         }
-        return true;
+
+        // start socket in AF_UNIX
+        return StartAfUnix();
     }
 
-    // poll control for handling new connections and keep shm connections alive
-    void PollCtl(int64_t now) {
+    int RecvLoginMsg(int fd, MsgHeader* recvbuf, int recvbuf_len) {
+        struct msghdr msg;
+        msg.msg_name = nullptr;
+        msg.msg_namelen = 0;
+
+        struct iovec iov;
+        iov.iov_base = recvbuf;
+        iov.iov_len = recvbuf_len;
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+
+        int msg_ctrl_arr[2];
+
+        std::unique_ptr<char> cmsg_buf;
+        uint32_t fd_mem_size = 2 * sizeof(int);     //send fd and recv fd.
+        cmsg_buf.reset(new char[CMSG_SPACE(fd_mem_size)]);
+        msg.msg_control = (caddr_t)cmsg_buf.get();
+        msg.msg_controllen = CMSG_LEN(fd_mem_size);
+
+        ssize_t n_recv = recvmsg(fd, &msg, MSG_NOSIGNAL);
+        if (n_recv <= 0) {
+            static_cast<Derived*>(this)->OnSystemError("recvmsg", errno);
+            return n_recv;
+        }
+
+        if (msg.msg_controllen) {
+            struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+            LoginMsg* login = (LoginMsg*)(recvbuf + 1);
+            login->client_shm_send_fd = ((int*)(CMSG_DATA(cmsg)))[0];
+            login->client_shm_recv_fd = ((int*)(CMSG_DATA(cmsg)))[1];
+        }
+
+        return n_recv;
+    }
+
+    void PollCtl(int64_t now, int listenfd, void* conns_arr, int& avail_idx) {
+        NewConn* new_conns = (NewConn*)conns_arr;
         // every poll we accept only one connection
-        if(avail_idx_ != Conf::MaxNewConnections) {
-            NewConn& conn = new_conns_[avail_idx_];
+        if(avail_idx != Conf::MaxNewConnections) {
+            NewConn& conn = new_conns[avail_idx];
             socklen_t addr_len = sizeof(conn.addr);
-            conn.fd = accept(listenfd_, (struct sockaddr*)&(conn.addr), &addr_len);
+            conn.fd = accept(listenfd, (struct sockaddr*)&(conn.addr), &addr_len);
             // we ignore errors from accept as most errno should be treated like EAGAIN
             if(conn.fd >= 0) {
                 fcntl(conn.fd, F_SETFL, O_NONBLOCK);
                 conn.time = now;
-                avail_idx_ = Conf::MaxNewConnections;
+                avail_idx = Conf::MaxNewConnections;
             }
         }
         // visit all new connections, trying to read LoginMsg
         for(int i = 0; i < Conf::MaxNewConnections; i++) {
-            NewConn& conn = new_conns_[i];
+            NewConn& conn = new_conns[i];
             if(conn.fd < 0) {
-                avail_idx_ = i;
+                avail_idx = i;
                 continue;
             }
-            int ret = ::recv(conn.fd, conn.recvbuf, sizeof(conn.recvbuf), 0);
+            //int ret = ::recv(conn.fd, conn.recvbuf, sizeof(conn.recvbuf), 0);
+            int recvsize = (1 + BlockCount(sizeof(LoginMsg))) * BLK_SIZE;
+            int ret = RecvLoginMsg(conn.fd, conn.recvbuf, recvsize);
             if(ret < 0 && errno == EAGAIN && now - conn.time <= Conf::NewConnectionTimeout) {
                 continue;
             }
@@ -152,7 +225,7 @@ protected:
                 ::close(conn.fd);
                 conn.fd = -1;
             }
-            avail_idx_ = i;
+            avail_idx = i;
         }
 
         for(auto& grp : shm_grps_) {
@@ -185,6 +258,11 @@ protected:
                 }
             }
         }
+    }
+
+    void PollCtl(int64_t now) {
+        PollCtl(now, listenfd_, new_conns_, avail_idx_);
+        PollCtl(now, listen_unix_fd_, new_unix_conns_, avail_unix_idx_);
     }
 
     // poll tcp for serving tcp connections
@@ -221,6 +299,13 @@ protected:
         }
         ::close(listenfd_);
         listenfd_ = -1;
+
+        if(listen_unix_fd_ < 0) {
+            return;
+        }
+        ::close(listen_unix_fd_);
+        listen_unix_fd_ = -1;
+
         for(int i = 0; i < Conf::MaxNewConnections; i++) {
             int& fd = new_conns_[i].fd;
             if(fd >= 0) {
@@ -229,6 +314,7 @@ protected:
             }
         }
         avail_idx_ = 0;
+        avail_unix_idx_ = 0;
         for(auto& grp : shm_grps_) {
             for(auto& conn : grp.conns) {
                 conn->Release();
@@ -249,7 +335,7 @@ private:
         int64_t time;
         int fd = -1;
         struct sockaddr_in addr;
-        MsgHeader recvbuf[1 + (sizeof(LoginMsg) + 7) / 8];
+        MsgHeader recvbuf[1 + ((sizeof(LoginRspMsg) + BLK_SIZE - 1) / BLK_SIZE)];
     };
     template<uint32_t N>
     struct alignas(64) ConnectionGroup
@@ -260,7 +346,7 @@ private:
 
     template<uint32_t N>
     void HandleLogin(int64_t now, NewConn& conn, ConnectionGroup<N>* grps) {
-        MsgHeader sendbuf[1 + (sizeof(LoginRspMsg) + 7) / 8];
+        MsgHeader sendbuf[1 + BlockCount(sizeof(LoginRspMsg))];
         sendbuf[0].size = sizeof(MsgHeader) + sizeof(LoginRspMsg);
         sendbuf[0].msg_type = LoginRspMsg::msg_type;
         sendbuf[0].template ConvertByteOrder<Conf::ToLittleEndian>();
@@ -303,6 +389,10 @@ private:
             }
 
             const char* error_msg;
+            int server_shm_recv_fd = login->client_shm_send_fd;
+            int server_shm_send_fd = login->client_shm_recv_fd;
+            curconn.set_shm_send_fd(server_shm_send_fd);
+            curconn.set_shm_recv_fd(server_shm_recv_fd);
             if(!curconn.OpenFile(login->use_shm, &error_msg)) {
                 // we can not mmap to ptcp or chm files with filenames related to local and remote name
                 static_cast<Derived*>(this)->OnClientFileError(curconn, error_msg, errno);
@@ -373,9 +463,13 @@ private:
     char server_name_[Conf::NameSize];
     std::string ptcp_dir_;
     int listenfd_ = -1;
+    int listen_unix_fd_ = -1;
 
     NewConn new_conns_[Conf::MaxNewConnections];
     int avail_idx_ = 0;
+
+    NewConn new_unix_conns_[Conf::MaxNewConnections];
+    int avail_unix_idx_ = 0;
 
     Connection conn_pool_[Conf::MaxShmConnsPerGrp * Conf::MaxShmGrps + Conf::MaxTcpConnsPerGrp * Conf::MaxTcpGrps];
     ConnectionGroup<Conf::MaxShmConnsPerGrp> shm_grps_[Conf::MaxShmGrps];

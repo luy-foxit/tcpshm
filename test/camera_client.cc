@@ -70,7 +70,6 @@ public:
         }
         else {
             if(do_cpupin) cpupin(7);
-
             {
                 LOG(INFO) << "send a msg to server";
                 MsgHeader* header_send = conn.Alloc(1);
@@ -161,7 +160,11 @@ private:
     // set slow to false to send msgs as fast as it can
     bool slow = true;
     // set do_cpupin to true to get more stable latency
+#ifdef __ANDROID__
+    bool do_cpupin = false;
+#else
     bool do_cpupin = true;
+#endif
     int* send_num;
     int* recv_num;
 

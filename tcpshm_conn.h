@@ -126,11 +126,23 @@ private:
             std::string shm_send_file = std::string("/") + local_name_ + "_" + remote_name_ + ".shm";
             std::string shm_recv_file = std::string("/") + remote_name_ + "_" + local_name_ + ".shm";
             if(!shm_sendq_) {
-                shm_sendq_ = my_mmap<SHMQ>(shm_send_file.c_str(), true, error_msg);
+                if(send_mmap_.fd() == -1) {
+                    send_mmap_.open_fd(shm_send_file.c_str(), true, error_msg);
+                }
+                shm_sendq_ = send_mmap_.my_mmap(true, error_msg);
+#ifndef __ANDROID__
+                send_mmap_.close_fd();
+#endif
                 if(!shm_sendq_) return false;
             }
             if(!shm_recvq_) {
-                shm_recvq_ = my_mmap<SHMQ>(shm_recv_file.c_str(), true, error_msg);
+                if(recv_mmap_.fd() == -1) {
+                    recv_mmap_.open_fd(shm_recv_file.c_str(), true, error_msg);
+                }
+                shm_recvq_ = recv_mmap_.my_mmap(true, error_msg);
+#ifndef __ANDROID__
+                recv_mmap_.close_fd();
+#endif
                 if(!shm_recvq_) return false;
             }
             return true;
@@ -162,12 +174,14 @@ private:
     void Release() {
         remote_name_[0] = 0;
         if(shm_sendq_) {
-            my_munmap<SHMQ>(shm_sendq_);
+            send_mmap_.my_munmap(shm_sendq_);
             shm_sendq_ = nullptr;
+            send_mmap_.close_fd();
         }
         if(shm_recvq_) {
-            my_munmap<SHMQ>(shm_recvq_);
+            recv_mmap_.my_munmap(shm_recvq_);
             shm_recvq_ = nullptr;
+            recv_mmap_.close_fd();
         }
         ptcp_conn_.Release();
     }
@@ -189,6 +203,24 @@ private:
         return shm_recvq_->Front();
     }
 
+    void set_shm_send_fd(int fd) {
+        if(fd == -1) return;
+        send_mmap_.set_fd(fd);
+    }
+
+    void set_shm_recv_fd(int fd) {
+        if(fd == -1) return;
+        recv_mmap_.set_fd(fd);
+    }
+
+    int shm_send_fd() {
+        return send_mmap_.fd();
+    }
+
+    int shm_recv_fd() {
+        return recv_mmap_.fd();
+    }
+
 private:
     const char* local_name_;
     char remote_name_[Conf::NameSize];
@@ -197,5 +229,7 @@ private:
     using SHMQ = SPSCVarQueue<Conf::ShmQueueSize>;
     alignas(64) SHMQ* shm_sendq_ = nullptr;
     SHMQ* shm_recvq_ = nullptr;
+    MyMMap<SHMQ>    recv_mmap_;
+    MyMMap<SHMQ>    send_mmap_;
 };
 } // namespace tcpshm

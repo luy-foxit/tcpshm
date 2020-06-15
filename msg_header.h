@@ -48,5 +48,18 @@ struct MsgHeader
         ed.ConvertInPlace(index);
     }
 };
+
+static const int BLK_SIZE = sizeof(MsgHeader);
+
+static const inline int BlockAlign(int size) {
+    int tmp = -1 * BLK_SIZE;
+    return ((size + BLK_SIZE - 1) & tmp);
+}
+
+static const inline int BlockCount(int size) {
+    return ((size + BLK_SIZE - 1) / BLK_SIZE);
+}
+
+
 } // namespace tcpshm
 
